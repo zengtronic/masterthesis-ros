@@ -1,0 +1,21 @@
+<launch>
+ <!-- robot communication node -->
+  <node pkg="serial_com" type="serial_communication_node.py" name="serial_com_node" output="screen">
+    <param name="settings_file" value="$(find serial_com)/config/settings.json"/>
+  </node>	
+  
+  <!-- ros infodisplay node -->
+  <node pkg="rosinfodisplay" type="rosinfodisplay.py" name="rosinfodisplay_node" output="screen">
+  </node>	
+  
+  <!-- Start the RPLIDAR A1M8 -->
+	<include file="$(find rplidar_ros)/launch/rplidar.launch" />
+ 
+  <!-- Start the Raspberry Camera Node -->
+	<include file="$(find raspicam_node)/launch/balancingpi.launch" />
+ 
+ 	<!-- Rosbridge & webvideoserver for the web dashboard -->
+	<include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch" />
+ 	<node name="web_video_server" pkg="web_video_server" type="web_video_server" />
+
+</launch>

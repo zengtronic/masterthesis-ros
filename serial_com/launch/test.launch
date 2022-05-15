@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+
+ <!-- backend node -->
+  <node pkg="serial_com" type="serial_communication_node.py" name="serial_com_node" output="screen">
+    <param name="settings_file" value="$(find serial_com)/config/settings.json"/>
+    
+  </node>
+ 
+</launch>

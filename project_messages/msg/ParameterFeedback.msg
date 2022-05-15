@@ -1,0 +1,13 @@
+Header header
+float64 balancing_kp
+float64 balancing_ki
+float64 balancing_kd
+bool balancing_mirror
+float64 speed_kp
+float64 speed_ki
+float64 speed_kd
+bool speed_mirror
+float64 angle_offset
+float64 linear_step
+float64 linear_back_multiplicator
+bool auto_offset_active

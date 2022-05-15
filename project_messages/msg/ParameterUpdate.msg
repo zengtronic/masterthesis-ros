@@ -1,0 +1,16 @@
+string name
+uint8 setting
+float64 float1
+float64 float2
+float64 float3
+float64 float4
+float64 float5
+float64 float6
+int64 int1
+int64 int2
+int64 int3
+int64 int4
+int64 int5
+int64 int6
+bool bool1
+bool bool2

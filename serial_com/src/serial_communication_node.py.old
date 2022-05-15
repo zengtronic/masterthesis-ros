@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+import sys
+import time
+import traceback
+import serial.tools.list_ports
+import json
+import yaml
+import os
+import rospy
+
+import geometry_msgs.msg
+import std_msgs.msg
+import sensor_msgs.msg
+from project_messages.msg import Telemetry, Balancing, Command, DriveControl
+
+
+settings = []
+
+throttlefactor = 1
+steeringfactor = 10
+
+zerocommand = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+commandblock = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+commandtosend = False
+
+
+def int2bytes(integer):
+    byte1 = (integer >> 8) & 0xFF
+    byte2 = (integer % 256) & 0xFF
+    return [byte1, byte2]
+
+
+def load_settings(file):
+  global settings
+  # Open settings
+  if os.path.isfile(file):
+      settings_file = open(file).read()
+      settings = json.loads(settings_file)
+      print("Loaded settings.")
+  else:
+      print("No settings found. Bye!")
+      exit(0)
+
+
+def command_callback(msg):
+    global commandtosend, commandblock
+    print(f"Received Command: {msg.commandname}")
+    commandblock = zerocommand
+    commandblock[0] = msg.command
+    commandblock[1:17] = msg.data
+    commandtosend = True
+
+
+def drivecontrol_callback(msg):
+    global commandtosend, commandblock
+    # Calculate the right value
+    throttle = round(msg.throttle * throttlefactor * 1000)
+    steering = round(msg.steering * steeringfactor * 1000)
+    # Prepare for command block
+    throttle_abs = abs(throttle)
+    throttle_sign = True if throttle < 0 else False
+    steering_abs = abs(steering)
+    steering_sign = True if steering < 0 else False
+    var1 = int2bytes(throttle_abs)
+    var2 = int2bytes(steering_abs)
+    # Set command block
+    commandblock = zerocommand
+    commandblock[0] = 128
+    commandblock[1] = throttle_sign
+    commandblock[2] = var1[0]
+    commandblock[3] = var1[1]
+    commandblock[4] = steering_sign
+    commandblock[5] = var2[0]
+    commandblock[6] = var2[1]
+    # Data ready to send flag
+    commandtosend = True
+
+
+def main():
+    global settings, commandtosend
+    """
+    main function
+    """
+    print("Starting serial communication node")
+    rospy.init_node('ser_com', anonymous=True, disable_signals=True)
+
+    settingsfile = rospy.get_param("~settings_file")
+    load_settings(settingsfile)
+    ser = None
+    try:
+        ser = serial.Serial(
+            port=settings['port'],  # port.name,
+            baudrate=115200,
+            parity=serial.PARITY_ODD,
+            stopbits=serial.STOPBITS_TWO,
+            bytesize=serial.EIGHTBITS
+        )
+    except:
+        print(f"ERROR: Could not open port {settings['port']}. Please look in the settings file if port is correct.")
+        print(traceback.format_exc())
+        sys.exit(1)
+
+    command_subscriber = rospy.Subscriber('/robot/command', Command, command_callback, queue_size=None)
+    drive_subscriber = rospy.Subscriber('/robot/drive', DriveControl, drivecontrol_callback, queue_size=None)
+    balancing_publisher = rospy.Publisher('/robot/balancing', Balancing, queue_size=2)
+
+    while(1):
+        if commandtosend:
+            print(f"New command to send to the robot: {commandblock}")
+            ser.write(bytes(commandblock))
+            commandtosend = False
+        if ser.in_waiting:
+            message = ser.readline()
+            print(message)
+            try:
+                message_parts = message.decode("utf-8").replace("\r", "").replace("\n", "").split(" ")
+            except:
+                message_parts = ["NULL"]
+            if message_parts[0] == "TEL":
+                try:
+                    msg = Balancing()
+                    now = rospy.get_time()
+                    #msg.header.stamp = now
+                    msg.tilt = int(message_parts[2]) / 100
+                    msg.rotation = int(message_parts[3]) / 100
+
+                    msg.imu.header = msg.header
+                    msg.imu.orientation.x = int(message_parts[5]) / 100
+                    msg.imu.orientation.y = int(message_parts[6]) / 100
+                    msg.imu.orientation.z = int(message_parts[7]) / 100
+                    msg.imu.orientation.w = int(message_parts[4]) / 100
+                    msg.imu.linear_acceleration.x = int(message_parts[8]) / 100
+                    msg.imu.linear_acceleration.y = int(message_parts[9]) / 100
+                    msg.imu.linear_acceleration.z = int(message_parts[10]) / 100
+                    msg.imu.angular_velocity.x = int(message_parts[11]) / 100
+                    msg.imu.angular_velocity.y = int(message_parts[12]) / 100
+                    msg.imu.angular_velocity.z = int(message_parts[13]) / 100
+                    msg.temperature.header = msg.header
+                    msg.temperature.temperature = int(message_parts[14]) / 100
+                    msg.pid_in = int(message_parts[15]) / 100
+                    msg.pid_out = int(message_parts[16]) / 100
+                    msg.pid_set = int(message_parts[17]) / 100
+                    msg.mot_left = int(message_parts[18]) / 100
+                    msg.mot_right = int(message_parts[19]) / 100
+                    msg.fallen = bool(int(message_parts[20]))
+                    msg.pid_pterm = int(message_parts[22]) / 100
+                    msg.pid_iterm = int(message_parts[23]) / 100
+                    msg.pid_dterm = int(message_parts[24]) / 100
+                    msg.pid_kp = int(message_parts[25]) / 100
+                    msg.pid_ki = int(message_parts[26]) / 100
+                    msg.pid_kd = int(message_parts[27]) / 100
+                    balancing_publisher.publish(msg)
+                except:
+                    print("ERROR: Couldnt process TELEMETRY message")
+                    print(traceback.format_exc())
+            else:
+                print(f"Received other message: \r\n{message}")
+        else:
+            time.sleep(0.01)
+
+
+    rospy.spin()
+
+
+#################
+# execution     #
+#################
+if __name__ == '__main__':
+    main()
+
